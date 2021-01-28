@@ -21,9 +21,12 @@ import (
 	"github.com/banzaicloud/operator-tools/pkg/reconciler"
 	"github.com/banzaicloud/operator-tools/pkg/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/prober/results"
 )
 
 func TestNewReconcilerWith(t *testing.T) {
@@ -85,3 +88,54 @@ func TestNewReconcilerWithUnstructured(t *testing.T) {
 	assert.Equal(t, created.Name, "test")
 	assert.Equal(t, created.Namespace, controlNamespace)
 }
+
+func TestRecreateObjectFailIfNotAllowed(t *testing.T) {
+	testData := []struct {
+		name string
+		desired runtime.Object
+		reconciler reconciler.ResourceReconciler
+		update func(object runtime.Object) runtime.Object
+		wantError func(error)
+		wantResult func(result results.Result)
+	}{
+		{
+
+		},
+	}
+
+	desired := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: testNamespace,
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "10.0.0.100",
+			Ports: []corev1.ServicePort{
+				{
+					Port: 123,
+				},
+			},
+		},
+	}
+	r := reconciler.NewReconcilerWith(k8sClient,
+		reconciler.WithEnableRecreateWorkload(),
+		reconciler.WithRecreateEnabledForNothing(),
+	)
+	_, err := r.ReconcileResource(desired, reconciler.StatePresent)
+	require.NoError(t, err)
+
+	desired.Spec.ClusterIP = "10.0.0.102"
+
+	_, err = r.ReconcileResource(desired, reconciler.StatePresent)
+	require.Contains(t, err.Error(), "resource type is not allowed to be recreated")
+
+	for _, tt := range testData {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.base.Override(tt.spec); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("base.Override() = \n%#v\nwant\n%#v\n", got, tt.want)
+			}
+		})
+	}
+}
+
